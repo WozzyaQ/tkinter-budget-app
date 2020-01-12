@@ -1,21 +1,18 @@
-import tkinter as tk
-from tkinter import ttk
-
-import budget
-from tkinter.font import Font
-from tkinter import messagebox
-
 import datetime
-
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.figure import Figure
-
+import tkinter as tk
+from tkinter import messagebox
+from tkinter import ttk
+from tkinter.font import Font
 
 import matplotlib
 from matplotlib import pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import numpy as np
+import budget
+
 matplotlib.use("TkAgg")
 
-password = "ipsaipsa"
+password = ""
 
 
 class GUI:
@@ -168,13 +165,11 @@ class GUI:
         self.digit_validation = (self.root.register(self.do_digits_validation), "%P")
         self.dot_and_digit_validation = (self.root.register(self.do_dot_digit_validation), "%P")
 
-        # Dict of widgets which needs to be cleared after action is done
+        # Костыль который помогает очищать и работать с новыми созданными окнами
         # radio_btn_state, date, total, percent, category, purpose
         self.dynamic_widgets = dict()
         self.fill_zeros_dynamic_widgets(self.dynamic_widgets)
         self.create_start_window()
-
-
 
     # костыль, который помогает не  столкнуться с KeyErroro'м когда пытаешся достать значение из словаря по
     # несуществующему ключу
@@ -471,11 +466,13 @@ class GUI:
             if self.dynamic_widgets["radio_btn_state"]:
                 period = self.dynamic_widgets["periodic_type"].get()
                 percent = self.dynamic_widgets["percent"].get()
+                print(period)
                 if not percent or not period:
                     messagebox.showinfo("Warning",
                                         "The percentage and period fields must be filled")
                     return
                 # transaction_type  date 0 / total 1 / is periodic  2/ period 3 / percent  4/ / purpose  5
+                print(period)
                 self.terminal.create_and_load_transaction(_transaction_type=type_of_transaction,
                                                           _date=date,
                                                           _total=total,
@@ -498,17 +495,17 @@ class GUI:
                     messagebox.showinfo("Warning",
                                         "The percentage and period fields must be filled")
                     return
-
                 self.terminal.create_and_load_transaction(_transaction_type=type_of_transaction,
                                                           _date=date,
                                                           _total=total,
                                                           _percent=percent,
-                                                          _purpose=purpose)
+                                                          _purpose=purpose,
+                                                          _period=period)
 
                 self.update_last_transactions_box(F"@{self.dynamic_widgets['transaction'].title()}|"
                                                   F"@Date:{date}|@Total:{total}|@Period:{period}|"
                                                   F"@Percent:{percent}")
-                self.close_popup(update_widgets=False)
+                self.close_popup(update_widgets=True)
             else:
                 self.terminal.create_and_load_transaction(_transaction_type=type_of_transaction,
                                                           _date=date,
@@ -618,7 +615,7 @@ class GUI:
 
         term_forecast_btn = tk.Button(top, text="Term forecast",
                                       image=pixel,
-                                      command=lambda: self.term_forecast_clicked(top),
+                                      command=lambda: self.term_forecast_clicked_handler(top),
                                       bd=0,
                                       highlightthickness=0,
                                       compound="center",
@@ -634,7 +631,7 @@ class GUI:
 
         show_all_transactions_btn = tk.Button(top, text="Show all transactions",
                                               image=pixel,
-                                              command=self.show_all_transaction_clicked,
+                                              command=lambda: self.show_all_transaction_clicked(top),
                                               bd=0,
                                               highlightthickness=0,
                                               compound="center",
@@ -653,10 +650,10 @@ class GUI:
         tree_view_popup = tk.Toplevel(parent)
         tree_view_popup.resizable(False, False)
 
-        tree_view_popup.geometry("820x600+200+200")
+        tree_view_popup.geometry("870x600+200+200")
         tree_view_frame = tk.Frame(tree_view_popup,
                                    height=600,
-                                   width=820)
+                                   width=870)
         tree = ttk.Treeview(tree_view_frame, height=600)
         # date / total / is_periodic / period / percent / purpose
         tree["columns"] = ("total", "is_periodic", "period", "percent", "purpose")
@@ -678,15 +675,15 @@ class GUI:
                         minwidth="120",
                         anchor="center")
         tree.column("purpose",
-                    width="200",
+                    width="250",
                     minwidth="200",
                     anchor="center")
 
         tree_view_frame.pack(expand=False)
-        tree.place(x=0, y=0, width=800, height=600)
+        tree.place(x=0, y=0, width=850, height=600)
 
         scrollbar = ttk.Scrollbar(tree_view_frame, orient="vertical", command=tree.yview)
-        scrollbar.place(x=800, y=0, height=600)
+        scrollbar.place(x=850, y=0, height=600)
         tree.configure(yscrollcommand=scrollbar.set)
 
         return tree_view_popup
@@ -731,7 +728,7 @@ class GUI:
             if data:
                 tree_view_popup = self.create_tree_view_popup(parent)
                 tree = tree_view_popup.winfo_children()[0].winfo_children()[0]
-
+                print(data)
                 for date in data:
                     for params in date[1]:
                         payload = (
@@ -835,6 +832,57 @@ class GUI:
         show_btn.place(relx=0.3, rely=0.5)
         return top
 
+    def create_forecast_window(self, parent, forecast_date):
+        if self.do_date_validation(forecast_date):
+            top = tk.Toplevel(parent)
+            top.resizable(False, False)
+            top.title("Forecast")
+            top.geometry("1200x600+50+200")
+            # get forecast data
+            forecast = list(self.filter.term_forecast(forecast_date))
+
+            # bar graph setup
+            labels = ["Income", "Expense"]
+            width = 0.75
+            x = np.arange(len(labels))
+            bar, ax = plt.subplots(figsize=(6, 6))
+            ax.set_title(F"Forecast for {forecast_date}")
+            ax.set_ylabel("Total")
+
+            rect_income = ax.bar(0, forecast[0], width, label="Income")
+            rect_expense = ax.bar(1, forecast[1], width, label="Expense")
+
+
+
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels)
+            canvas = FigureCanvasTkAgg(bar, top)
+
+            total_label = tk.Label(top,
+                                   text=F"Expected total: {forecast[0]-forecast[1]}",
+                                   font=self.main_font)
+
+            current_total_label = tk.Label(top,
+                                           text=F"Current total: {self.terminal.get_total_income()}",
+                                           font=self.main_font)
+
+            income_label = tk.Label(top,
+                                    text=F"Expected income: {forecast[0]}",
+                                    font=self.main_font)
+
+            expence_label = tk.Label(top,
+                                     text=F"Expected expense: {forecast[1]}",
+                                     font=self.main_font)
+
+            canvas.get_tk_widget().place(x=0, y=0)
+            total_label.place(x=580, y=150)
+            current_total_label.place(x=580, y=200)
+            income_label.place(x=580, y=250)
+            expence_label.place(x=580, y=300)
+
+        else:
+            messagebox.showerror("Incorrect date", "The date should be entered in dd.mm.YYYY format")
+
     def incomes_for_period_clicked(self, parent):
         top = self.create_select_date_window(parent, "income")
         top.title("Expense for period")
@@ -847,9 +895,34 @@ class GUI:
 
         top.mainloop()
 
-    def term_forecast_clicked(self, parent):
-        pass
+    def term_forecast_clicked_handler(self, parent):
+        top = tk.Toplevel(parent)
+        top.resizable(False, False)
+        top.geometry("200x100+600+300")
+        top.title("Forecast")
 
+        date_label = tk.Label(top,
+                              text="Forecast date",
+                              font=self.main_font)
+
+        date_entry = tk.Entry(top,
+                              font=self.main_font,
+                              validate="key",
+                              validatecommand=self.dot_and_digit_validation,
+                              width=12,
+                              justify="center")
+
+        forecast_btn = tk.Button(top,
+                                 text="Forecast",
+                                 font=self.main_font,
+                                 width=12,
+                                 justify="center",
+                                 command=lambda: self.create_forecast_window(top, date_entry.get()))
+
+        date_label.pack(anchor="center")
+        date_entry.pack(anchor="center")
+        forecast_btn.pack(anchor="center")
+        top.mainloop()
 
     def filter_by_sum_diapason_clicked(self, parent):
         top = self.create_select_sum_window(parent)
@@ -857,8 +930,27 @@ class GUI:
 
         top.mainloop()
 
-    def show_all_transaction_clicked(self):
-        pass
+    def show_all_transaction_clicked(self, parent):
+        tree_view_popup = self.create_tree_view_popup(parent)
+        tree_view_popup.title("All transactions")
+        tree = tree_view_popup.winfo_children()[0].winfo_children()[0]
+        data = self.filter.get_all_transactions()
+        for date in data:
+            print(date[1])
+            for params in date[1]:
+                payload = (
+                    params["total"],
+                    params["is_periodic"],
+                    params["period"],
+                    params["percent"],
+                    params["purpose"]
+                )
+                tree.insert("",
+                            "end",
+                            text=F"{params['type']} | {date[0]}",
+                            values=payload)
+
+        tree_view_popup.mainloop()
 
     def update_on_start(self):
         self.update_pie_chart()
@@ -885,10 +977,10 @@ class GUI:
 
     def save_all(self):
         self.terminal.save_all()
-        self.root.destroy()
+        self.root.quit()
+
 
 gui = GUI(budget.Terminal())
-
 gui.root.mainloop()
 
 

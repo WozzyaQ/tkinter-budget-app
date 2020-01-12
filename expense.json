@@ -1,11 +1,22 @@
 {
-    "22.12.2019": [
+    "27.12.2019": [
         {
-            "total": "105",
+            "total": "500",
             "is_periodic": false,
             "period": false,
             "percent": null,
-            "purpose": ""
+            "purpose": "Derived from deposit:27.12.2019",
+            "derived": true,
+            "updatable": true
+        },
+        {
+            "total": "5000",
+            "is_periodic": true,
+            "period": "Quarter",
+            "percent": "15",
+            "purpose": "Derived from credit:27.12.2019",
+            "updatable": false,
+            "derived": true
         }
     ]
 }

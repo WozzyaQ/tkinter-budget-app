@@ -1,1 +1,10 @@
-[]
+[
+    {
+        "date": "27.12.2019",
+        "total": "5000",
+        "period": "Quarter",
+        "percent": "15",
+        "purpose": "",
+        "is_periodic": true
+    }
+]

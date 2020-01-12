@@ -25,7 +25,6 @@ class DepositTask(AbstractTask):
         self._state = None
         self._observers = list()
 
-        # self._deposits = list()
         self._deposits = self.retrieve_data()
 
     def attach_observer(self, observer: Observer):
@@ -47,9 +46,9 @@ class DepositTask(AbstractTask):
                                    total=args[1],
                                    period=args[3],
                                    percent=args[4],
-                                   purpose=args[5]))
+                                   purpose=args[5],
+                                   is_periodic=True))
 
-        print(self._deposits)
         self.notify_observers()
         self._state = None
 
@@ -58,7 +57,6 @@ class DepositTask(AbstractTask):
         try:
             with open("deposit.json", "r") as file:
                 data = json.load(file)
-                print(data)
                 return data
 
         except json.JSONDecodeError:
@@ -66,7 +64,11 @@ class DepositTask(AbstractTask):
 
     def save_data(self):
         with open("deposit.json", "w") as file:
-            json.dump(self._deposits, file, indent=4)
+            json.dump(self.deposits, file, indent=4)
+
+    @property
+    def deposits(self):
+        return self._deposits
 
 
 class CreditTask(AbstractTask):
@@ -94,7 +96,8 @@ class CreditTask(AbstractTask):
                                   total=args[1],
                                   period=args[3],
                                   percent=args[4],
-                                  purpose=args[5]))
+                                  purpose=args[5],
+                                  is_periodic=True))
 
         self.notify_observers()
         self._state = None
@@ -104,7 +107,6 @@ class CreditTask(AbstractTask):
         try:
             with open("credit.json", "r") as file:
                 data = json.load(file)
-                print(data)
                 return data
 
         except json.JSONDecodeError:
@@ -112,8 +114,11 @@ class CreditTask(AbstractTask):
 
     def save_data(self):
         with open("credit.json", "w") as file:
-            json.dump(self._credits, file, indent=4)
+            json.dump(self.credits, file, indent=4)
 
+    @property
+    def credits(self):
+        return self._credits
 
 
 class Observer(ABC):
@@ -132,7 +137,8 @@ class Expense(Observer):
                                             is_periodic=args[2],
                                             period=args[3],
                                             percent=args[4],
-                                            purpose=args[5]))
+                                            purpose=args[5],
+                                            derived=False))
 
     def update(self, subject: AbstractTask) -> None:
         state = subject._state
@@ -142,7 +148,9 @@ class Expense(Observer):
                                                                 is_periodic=False,
                                                                 period=False,
                                                                 percent=None,
-                                                                purpose=new_transaction["purpose"]))
+                                                                purpose=F"Derived from deposit:{new_transaction['date']}",
+                                                                derived=True,
+                                                                updatable=True))
 
         elif state == "credit":
             new_transaction = subject._credits[-1]
@@ -150,7 +158,9 @@ class Expense(Observer):
                                                                 is_periodic=True,
                                                                 period=new_transaction["period"],
                                                                 percent=new_transaction["percent"],
-                                                                purpose=new_transaction["purpose"]))
+                                                                purpose=F"Derived from credit:{new_transaction['date']}",
+                                                                updatable=False,
+                                                                derived=True))
 
     @staticmethod
     def retrieve_data():
@@ -183,7 +193,9 @@ class Income(Observer):
                                            is_periodic=args[2],
                                            period=args[3],
                                            percent=args[4],
-                                           purpose=args[5]))
+                                           purpose=args[5],
+                                           derived=False,
+                                           updatable=True))
 
     def update(self, subject: AbstractTask) -> None:
         state = subject._state
@@ -193,14 +205,18 @@ class Income(Observer):
                                                                is_periodic=True,
                                                                period=new_transaction["period"],
                                                                percent=new_transaction["percent"],
-                                                               purpose=new_transaction["purpose"]))
+                                                               purpose=F"Derived from deposit:{new_transaction['date']}",
+                                                               derived=True,
+                                                               updatable=False))
         elif state == "credit":
             new_transaction = subject._credits[-1]
             self._incomes[new_transaction["date"]].append(dict(total=new_transaction["total"],
                                                                is_periodic=False,
                                                                period=False,
                                                                percent=None,
-                                                               purpose=new_transaction["purpose"]))
+                                                               purpose=F"Derived from credit:{new_transaction['date']}",
+                                                               updatable=True,
+                                                               derived=True))
 
     @staticmethod
     def retrieve_data():
@@ -254,7 +270,7 @@ class Terminal:
         total = 0
         for list_of_transaction in self._expense.expenses.values():
             for transaction in list_of_transaction:
-                if not transaction["period"]:
+                if not transaction["period"] and transaction["updatable"]:
                     total += float(transaction["total"])
         return round(total, 2)
 
@@ -262,7 +278,7 @@ class Terminal:
         total = 0
         for list_of_transaction in self._income.incomes.values():
             for transaction in list_of_transaction:
-                if not transaction["period"]:
+                if not transaction["period"] and transaction["updatable"]:
                     total += float(transaction["total"])
         return round(total, 2)
 
@@ -344,7 +360,7 @@ class Filter:
 
         sorted_dates = self.sort_dates(dates_to_sort)
 
-        return self.fetch_transactions_by_date(transactions_in_sum_range,sorted_dates)
+        return self.fetch_transactions_by_date(transactions_in_sum_range, sorted_dates)
 
     @staticmethod
     def fetch_transactions_by_date(data, date_range):
@@ -355,7 +371,6 @@ class Filter:
                 payload.append((date, value))
         return payload
 
-    # TODO  how to pass suitable dates to user
     def get_incomes_for_period(self, start_date, end_date):
         date_range = self.get_dates_in_range(start_date, end_date, self.terminal.income.incomes)
         return self.fetch_transactions_by_date(self.terminal.income.incomes, date_range)
@@ -364,28 +379,106 @@ class Filter:
         date_range = self.get_dates_in_range(start_date, end_date, self.terminal.expense.expenses)
         return self.fetch_transactions_by_date(self.terminal.expense.expenses, date_range)
 
-    def term_forecast(self, start_date, end_date):
-        pass
-
     def get_all_transactions(self):
-        pass
+        expense_ = copy.copy(self.terminal.expense.expenses)
+        income_ = copy.copy(self.terminal.income.incomes)
+        deposits_ = copy.copy(self.terminal.deposit.deposits)
+        credits_ = copy.copy(self.terminal.credit.credits)
+
+        payload = list()
+
+        for key, values in expense_.items():
+            for single_value in values:
+                single_value.update(type="E")
+
+            payload.append((key, values))
+
+        for key, values in income_.items():
+            for single_value in values:
+                single_value.update(type="I")
+
+            payload.append((key, values))
+
+        for item in deposits_:
+            item["type"] = "D"
+            payload.append((item["date"], [item]))
+
+        for item in credits_:
+            item["type"] = "C"
+            payload.append((item["date"], [item]))
+
+        payload = sorted(payload, key=lambda date: datetime.datetime.strptime(date[0], '%d.%m.%Y'))
+        return payload
 
     def filter_by_sum_diapason(self, lower_bound: float, upper_bound):
         merged_transaction_list = copy.copy(self.terminal.expense.expenses)
-        for key, value in merged_transaction_list.items():
-            for single_value in value:
+        for key, values in merged_transaction_list.items():
+            for single_value in values:
                 single_value.update(type="E")
 
-        for key, value in self.terminal.income.incomes.items():
-            for single_value in value:
+        for key, values in self.terminal.income.incomes.items():
+            for single_value in values:
                 single_value.update(type="I")
                 merged_transaction_list[key].append(single_value)
 
         return self.get_transactions_in_sum_range(lower_bound, upper_bound, merged_transaction_list)
 
+    def term_forecast(self, forecast_date: str):
+        forecast_date = list(map(int, forecast_date.split(".")))
+        forecast_date = datetime.date(forecast_date[-1], forecast_date[-2], forecast_date[-3])
 
-# terminal_ = Terminal()
-# filter_ = Filter(terminal_)
+        expense_total_forecast = self.data_forecast(forecast_date, self.terminal.expense.expenses)
+        incomes_forecast_total = self.data_forecast(forecast_date, self.terminal.income.incomes)
+
+        return round(incomes_forecast_total + self.terminal.get_total_income(),3), round(expense_total_forecast,3)
+
+    def data_forecast(self, forecast_date, data):
+        periods = {
+            "Day": 1,
+            "Week": 7,
+            "Month": 28,
+            "Quarter": 90,
+            "Year": 365
+
+        }
+        total = 0
+        
+        for date, transactions in data.items():
+            analysing_date = list(map(int, date.split(".")))
+            analysing_date = datetime.date(analysing_date[-1], analysing_date[-2], analysing_date[-3])
+            if analysing_date == forecast_date:
+                delta = 1
+            else:
+                delta = int(str(forecast_date - analysing_date).split()[0])
+
+            if delta >= 0:
+                for transaction in transactions:
+                    if transaction["is_periodic"] and transaction["derived"]:
+                        transaction_period = periods[transaction["period"]]
+                        if delta >= transaction_period:
+                            total += self.calculate_compound_interest(float(transaction["total"]),
+                                                                      delta // transaction_period,
+                                                                      float(transaction["percent"]))
+                    elif transaction["is_periodic"] and not transaction["derived"]:
+                        transaction_period = periods[transaction["period"]]
+                        if delta >= transaction_period:
+                            total += self.calculate_normal_interest(float(transaction["total"]),
+                                                                    delta//transaction_period,
+                                                                    float(transaction["percent"]))
+
+        return total
+
+    @staticmethod
+    def calculate_compound_interest(total, times, percent):
+        return total*(1+percent/100)**times
+
+    @staticmethod
+    def calculate_normal_interest(total, times, percent):
+        return total*percent*times/100
+
+
+terminal_ = Terminal()
+filter_ = Filter(terminal_)
 # terminal_.create_and_load_transaction("expense", "12.10.2008", 1999)
 #
 # terminal_.create_and_load_transaction("expense", "12.10.2008", 1999)
@@ -393,7 +486,11 @@ class Filter:
 # terminal_.create_and_load_transaction("income", "12.10.1999", 300)
 # terminal_.create_and_load_transaction("deposit", "12.10.1999", 300)
 # terminal_.create_and_load_transaction("credit", "12.10.1999", 300)
+#
+#
+#
+# filter_.get_all_transactions()
 
-#
-#
-# terminal_.save_all()
+filter_.term_forecast("11.12.2021")
+
+# filter_.calculate_compound_interest(10,3,50)
